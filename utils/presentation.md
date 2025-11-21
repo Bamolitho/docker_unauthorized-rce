@@ -307,6 +307,111 @@ J’applique le principe de **défense en profondeur**, avec une sécurisation �
 1. **Comment empêcher un attaquant d’accéder à Docker s’il n’a pas encore compromis la machine ?**
 2. **S’il compromet la machine, comment limiter son impact ou l’empêcher d’exploiter la vulnérabilité du port 2375 ?**
 
+La vulnérabilité provient d’une exposition directe du Docker Remote API sur **tcp/2375** sans aucune authentification.
+Pour empêcher toute exploitation, j’applique une stratégie de **défense en profondeur**, c’est-à-dire placer des protections à chaque couche : réseau, service Docker, et système hôte.
+
+------
+
+## **1. Empêcher l’accès au Docker Daemon depuis l’extérieur**
+
+**Objectif :** si un attaquant n’a pas accès à la machine hôte, il ne doit pas pouvoir communiquer avec le daemon Docker.
+
+### **Mesures**
+
+- **Ne jamais exposer le port 2375 en clair.**
+   Le daemon doit être accessible uniquement via :
+  - le **socket Unix local** `/var/run/docker.sock`, ou
+  - un port sécurisé via **TLS + certificats client**.
+- **Utiliser un pare-feu strict** (UFW, iptables, firewall-cmd) :
+  - bloquer l’accès à `2375/tcp` depuis l’extérieur,
+  - n’autoriser que des IP spécifiques si un accès distant est réellement nécessaire.
+- **Placer Docker derrière un tunnel sécurisé** :
+  - SSH forwarding,
+  - VPN interne (WireGuard, Tailscale, ZeroTier),
+  - ou reverse proxy authentifié.
+- **Segmenter le réseau** : Docker doit être dans un VLAN ou un sous-réseau non exposé.
+
+------
+
+## **2. Réduire l’impact même si l’attaquant atteint la machine**
+
+**Objectif :** si quelqu’un parvient à exécuter du code sur l’hôte, il faut limiter les dégâts possibles.
+
+### **Mesures**
+
+- **Ne pas lancer Docker en mode privilégié.**
+   Ce mode donne un accès trop large aux capacités du noyau.
+- **Désactiver les options risquées dans Docker** :
+  - pas de `--privileged`,
+  - pas de `--device`,
+  - pas de montages sensibles (`/etc`, `/root`, `/var/run/docker.sock`).
+- **Activer les profils de sécurité Docker :**
+  - **AppArmor** (Ubuntu, Debian),
+  - **SELinux** (CentOS, Fedora),
+  - **seccomp** (profil par défaut recommandé).
+- **Créer un utilisateur Docker dédié**, sans privilèges root, et limiter l’accès au groupe `docker`.
+- **Surveiller l’activité du daemon** :
+  - auditd,
+  - journald,
+  - Falco,
+  - logs du Docker Daemon.
+- **Mettre à jour régulièrement Docker Engine**, car les versions récentes corrigent de nombreux comportements dangereux.
+
+------
+
+## **3. Synthèse de la défense en profondeur**
+
+| Niveau            | Objectif                                 | Mesures principales                                    |
+| ----------------- | ---------------------------------------- | ------------------------------------------------------ |
+| **Réseau**        | Empêcher l’accès au port 2375            | Firewall, pas d’exposition publique, VPN/SSH           |
+| **Daemon Docker** | Exiger une authentification              | TLS + certs, socket Unix uniquement                    |
+| **Hôte**          | Réduire l’impact en cas de compromission | Pas de mode privilégié, AppArmor/SELinux, mises à jour |
+
+------
+
+## **4. Résultat**
+
+Avec ces protections :
+
+- un attaquant ne peut plus atteindre l’API Docker depuis l’extérieur,
+- même s’il obtient un accès local, il ne peut plus exploiter la même vulnérabilité,
+- l’impact d’un éventuel contournement est fortement réduit par les mécanismes de sécurité du noyau.
+
+------
+
+```mermaid
+flowchart LR
+    subgraph Attaquant
+        A[Acces externe]
+    end
+
+    subgraph Reseau
+        FW[Blocage port 2375]
+        TUN[Tunnel SSH ou VPN]
+    end
+
+    subgraph Docker_Daemon
+        TLS[TLS obligatoire]
+        SOCK[Socket Unix uniquement]
+        SEC[Restrictions seccomp/AppArmor]
+    end
+
+    subgraph Hote
+        USER[Utilisateur limite]
+        LOGS[Monitoring et logs]
+    end
+
+    A --> FW
+    FW --> TUN
+    TUN --> TLS
+    TLS --> SOCK
+    SOCK --> SEC
+    SEC --> USER
+    USER --> LOGS
+```
+
+
+
 ------
 
 ## **1. Empêcher l’accès au Docker Daemon (Protection périmétrique)**
