@@ -1,10 +1,7 @@
 ## **Préalables**
 
-**Docker** : PaaS qui permet de délivrer des logiciels dans des conteneurs. 
-
-Un conteneur contient tout ce qu'il faut pour que le logiciel fonctionne (codes sources, dépendances, etc.)
-
-
+**Docker** est une solution de type *PaaS* qui permet de livrer et d’exécuter des logiciels à l’intérieur de **conteneurs**.
+Un conteneur embarque tout ce qu’il faut pour faire tourner une application : code, dépendances, librairies, configuration.
 
 ### **Les 3 piliers de l’architecture Docker :**
 
@@ -17,7 +14,16 @@ Il **ne gère rien lui-même**, il fait juste **envoyer des instructions** au Do
   
 
 2. **Docker API** : la passerelle entre le CLI et le Daemon (une interface REST) 
-3. Le **Docker Daemon (dockerd)** exécute réellement ce que tu demandes
+
+3. Le **Docker Daemon (dockerd)**  :  c’est le moteur qui s’occupe réellement de :
+
+   - lancer les conteneurs,
+   - les arrêter,
+   - gérer les volumes,
+   - télécharger les images,
+   - orchestrer toutes les opérations Docker.
+
+   
 
 ```mermaid
 flowchart LR
@@ -35,50 +41,44 @@ flowchart LR
 
 ## **Quelle est la vulnérabilité?**
 
+Le problème apparaît quand **le Docker Daemon écoute sur le port 2375 en clair**, sans :
+
+- authentification,
+- chiffrement,
+- contrôle d'accès.
+
+Le port 2375 donne un **accès complet à l’API Docker**, exactement comme si l’attaquant utilisait la commande `docker` sur la machine hôte.
 
 
-## **On peut faire quoi quand la vulnérabilités est exploitée ?**
 
-Un attaquant peut : 
+## **Que peut faire un attaquant ?**
 
-- créer, 
-- modifier,
-- et executer. 
+S’il accède à l’API non sécurisée, il peut :
 
-des conteneurs sur le système hote
+- **créer** des conteneurs,
+- **modifier** des configurations,
+- **exécuter** des commandes,
+- monter des volumes du système hôte,
+- détourner Docker pour obtenir un shell.
 
-### **Potentielles conséquences ?**
-
-- Executer du code à distance,
-- Voler des données, 
-- Compromettre complètement le système hote.
+En résumé : il a **les mêmes pouvoirs que l’administrateur Docker**.
 
 
+
+## **Conséquences potentielles**
+
+Une exploitation réussie peut mener à :
+
+- **Exécution de code à distance (RCE)** sur la machine hôte
+- **Vol ou corruption de données** via les volumes montés
+- **Évasion du conteneur** et accès complet au système
+- **Compromission totale du serveur** (root complet via Docker)
 
 
 
 # **Démonstration**
 
 
-
-# **Mesures de mitigation**
-
-------
-
-Parfait, tu viens de me donner **la page Docker officielle** qui explique comment sécuriser le démon Docker.
- Maintenant il faut que je **l’intègre proprement dans tes “Mesures de mitigation”**, en répondant à tes deux questions, en restant clair, structuré, et utile pour ton rapport.
-
-Je te propose **une version propre, prête à coller dans ton GitHub**, qui explique :
-
-- les risques
-- les mesures
-- lesquelles sont prioritaires
-- comment elles s’appliquent techniquement à ton labo
-
-Et surtout :
- Elle est courte, lisible, et ça montre que tu maîtrises vraiment le sujet.
-
-------
 
 # **Mesures de mitigation**
 
