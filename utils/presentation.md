@@ -203,48 +203,100 @@ Résultat final :
 
 
 
-# **Démonstration**
+# **Démonstration de l’exploitation**
 
-L’objectif est de montrer ce qui se passe lorsqu’un Docker Daemon est exposé sur **2375**, sans authentification ni chiffrement.
- Dans ce scénario de laboratoire, l’attaquant n’a besoin que d’un accès réseau au port vulnérable pour interagir avec l’API Docker exactement comme s’il était administrateur de la machine.
+Cette démonstration illustre comment une mauvaise configuration de Docker (port 2375 exposé sans authentification) permet à un attaquant **d’exécuter des actions critiques sur le daemon Docker à distance**.
+Le scénario suivant est réalisé **dans un environnement isolé**, conçu pour l’apprentissage.
 
-### **1. Connexion au Docker Daemon exposé**
+------
 
-Dans un environnement sécurisé, la seule manière d’interagir avec Docker est de passer par le socket local `/var/run/docker.sock` ou une connexion SSH/TLS.
+## **1. Contexte de la vulnérabilité**
 
-Dans ce labo, le daemon accepte également les commandes via le port **2375**, ce qui permet de communiquer avec lui **à distance et sans restriction**.
+Lorsque Docker est configuré pour écouter sur :
 
-Le résultat : tout outil capable de parler à l’API REST peut envoyer des commandes Docker.
+```
+tcp://0.0.0.0:2375
+```
 
-### **2. Manipulation de conteneurs via l’API**
+… sans TLS ni authentification, n’importe quel utilisateur capable d’atteindre ce port peut envoyer des requêtes à l’API Docker Remote.
 
-Une fois connecté à l’API exposée, un utilisateur non autorisé peut :
+Le daemon Docker considère alors cet utilisateur comme **root**, car l’API n’intègre aucune notion d’utilisateur.
 
-- démarrer un nouveau conteneur,
-- lui faire monter des fichiers ou dossiers du système hôte,
-- lui faire exécuter des actions qui affectent la machine réelle,
-- lire ou modifier des données critiques du serveur.
+Résultat :
+ **toute personne ayant accès au port peut contrôler Docker comme si elle était administrateur du système.**
 
-Cette étape prouve que l’attaquant contourne complètement les mécanismes d’isolation normalement prévus.
+------
 
-### **3. Preuve d’exploitation**
+## **2. Objectif de l’exploitation**
 
-La preuve consiste à :
+Dans le cadre du labo, le but est de montrer qu’un attaquant peut :
 
-- déclencher des actions via l’API Docker vulnérable,
-- observer la réaction sur le système hôte,
-- vérifier que ces actions auraient normalement été impossibles sans accès root.
+- lister les conteneurs, images et volumes
+- créer un nouveau conteneur
+- monter des dossiers de l’hôte
+- exécuter des commandes arbitraires dans ce conteneur
+- et donc interagir indirectement avec l’hôte
 
-La démonstration valide donc que : **l’API Docker exposée donne un contrôle total de la machine hôte.**
+Ce comportement démontre comment un simple service mal configuré peut mener à une **exécution de code à distance**.
 
-### **4. Validation**
+------
 
-La validation se fait en deux points :
+## **3. Approche de l’attaquant dans l’exercice**
 
-1. **Le démon Docker accepte et exécute des commandes depuis le réseau**, alors qu’il ne devrait jamais le faire sans authentification.
-2. **Les actions déclenchées à distance ont un impact direct sur le système hôte**, prouvant la compromission.
+Dans la démonstration :
 
-L’ensemble constitue une exploitation réussie de la vulnérabilité.
+1. L’attaquant découvre que le port **2375/tcp** est accessible.
+2. Il identifie qu’il s’agit du **Docker Remote API**.
+3. Il interagit avec l’API à partir d’un client Docker configuré pour pointer vers ce port (dans le labo).
+4. Il envoie des instructions normales (ex.: créer un conteneur, exécuter une commande).
+5. Le daemon exécute les actions **comme si elles venaient d’un administrateur local**.
+
+Tout cela est rendu possible car **le daemon n’impose aucune barrière de sécurité**.
+
+------
+
+## **4. Exemple conceptuel du flux d’exploitation**
+
+Voici la logique — pas les commandes réutilisables :
+
+- L’attaquant demande au daemon de créer un conteneur basé sur une petite image (ex.: Alpine).
+- Il demande ensuite d’exécuter une commande dans ce conteneur.
+- Il peut aussi demander de monter un dossier de l’hôte dans ce conteneur.
+- Dès que le conteneur tourne avec un montage de l’hôte, l’attaquant peut lire, modifier ou créer des fichiers côté host.
+
+Le daemon exécute tout cela **sans confirmation**, car il considère que la requête est légitime.
+
+------
+
+## **5. Illustration du résultat dans ton labo**
+
+Dans ton environnement TryHackMe :
+
+- le démon Docker tourne à l’intérieur d’un conteneur volontairement vulnérable,
+- le port 2375 est exposé, sans TLS, sans authentification,
+- tu as montré qu’un client Docker externe peut interagir avec ce daemon et lui faire exécuter des instructions.
+
+Cette preuve valide que :
+
+**L’exposition du port Docker Remote API permet une prise de contrôle totale du daemon, donc du système.**
+
+------
+
+## **6. Conclusion de la démonstration**
+
+Cette attaque prouve qu’exposer le Docker Remote API :
+
+- revient à donner **root** à distance,
+- annule toutes les autres protections éventuelles,
+- et ouvre la porte à un RCE complet.
+
+C’est pour cela que la documentation officielle recommande :
+
+- d’utiliser **uniquement le socket Unix local** pour Docker,
+- ou d’activer **obligatoirement TLS + certificats client** lorsque l’accès réseau est nécessaire.
+
+------
+
 
 
 # **Mesures de mitigation**
