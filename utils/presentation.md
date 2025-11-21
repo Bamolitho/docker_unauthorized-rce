@@ -76,8 +76,175 @@ Une exploitation réussie peut mener à :
 
 
 
+## **Comprendre la configuration actuelle**
+
+Ce que fait **chaque fichier**, puis de ce qui se passe lorsque tu exécutes :
+
+```bash
+docker compose build && docker compose up -d
+```
+
+------
+
+# **1. docker-compose.yml**
+
+```yaml
+services:
+ docker:
+   build: .
+   ports:
+    - "2375:2375"
+   privileged: true
+```
+
+Ce fichier :
+
+- crée un service appelé **docker**,
+- construit l’image à partir du **Dockerfile** présent dans le dossier courant (`build: .`),
+- expose **le port 2375 du conteneur vers 2375 de ta machine** (c’est volontairement vulnérable),
+- lance le conteneur en mode **privileged**, ce qui donne au conteneur quasiment les mêmes droits que la machine hôte.
+
+En clair : **tu fais tourner un Docker-in-Docker volontairement exposé et totalement permissif pour la démonstration de vulnérabilité.**
+
+------
+
+# **2. docker-entrypoint.sh**
+
+Ce script est exécuté au démarrage du conteneur.
+
+Il fait trois choses :
+
+### **(1) Il configure dockerd**
+
+Il force Docker à écouter :
+
+- en local : `unix:///var/run/docker.sock`
+- en réseau : **tcp://0.0.0.0:2375** (le port vulnérable)
+
+C’est ici que l’ouverture totale du daemon se produit.
+
+### **(2) Il passe la commande à dind (Docker-in-Docker)**
+
+Si la commande lancée est `dockerd`, alors :
+
+- il remplace l’exécution par une version adaptée à Docker-in-Docker
+- ce qui permet d’avoir **un démon Docker complet à l’intérieur du conteneur**
+
+### **(3) Il démarre cron**
+
+```shell
+crond -b -L /var/log/crond.log
+```
+
+Ce service tourne en arrière-plan pour permettre l’exploitation par injection de crontab lors de la démonstration.
+
+**Ensuite** :
+
+```
+exec "$@"
+```
+
+lance réellement `dockerd`.
+
+------
+
+# **3. Dockerfile**
+
+```dockerfile
+FROM vulhub/docker:28.0.1
+COPY docker-entrypoint.sh /
+ENTRYPOINT [ "/docker-entrypoint.sh" ]
+```
+
+Ce fichier :
+
+- utilise une image préparée par Vulhub qui supporte Docker-in-Docker,
+- copie le script `docker-entrypoint.sh` dans l’image,
+- le définit comme **point d’entrée** du conteneur.
+
+**Bref** : ça crée un démon Docker exposé.
+
+------
+
+# **4. Que se passe-t-il quand tu fais :**
+
+```bash
+docker compose build && docker compose up -d
+```
+
+Voici le déroulement précis :
+
+## **(1) docker compose build**
+
+- Docker lit ton `Dockerfile`
+- construit l'image avec :
+  - la base `vulhub/docker:28.0.1`
+  - le script `docker-entrypoint.sh`
+- l’image finale devient celle utilisée par le service `docker`
+
+## **(2) docker compose up -d**
+
+Quand le conteneur démarre :
+
+1. **docker-entrypoint.sh se lance**
+2. il prépare la configuration du daemon Docker
+3. il démarre Docker-in-Docker avec :
+   - socket Unix interne
+   - port TCP **2375** ouvert sur toutes les IP
+4. il démarre **cron**, utilisé pour injecter la tâche malveillante dans la preuve d’exploitation
+5. le conteneur tourne en arrière-plan
+    -> grâce au `-d` (detached mode)
+
+Résultat final :
+
+### **Tu obtiens un démon Docker vulnérable, accessible à distance, parfait pour démontrer l’attaque Unauthorized Docker Remote API RCE.**
+
+------
+
+
+
 # **Démonstration**
 
+L’objectif est de montrer ce qui se passe lorsqu’un Docker Daemon est exposé sur **2375**, sans authentification ni chiffrement.
+ Dans ce scénario de laboratoire, l’attaquant n’a besoin que d’un accès réseau au port vulnérable pour interagir avec l’API Docker exactement comme s’il était administrateur de la machine.
+
+### **1. Connexion au Docker Daemon exposé**
+
+Dans un environnement sécurisé, la seule manière d’interagir avec Docker est de passer par le socket local `/var/run/docker.sock` ou une connexion SSH/TLS.
+
+Dans ce labo, le daemon accepte également les commandes via le port **2375**, ce qui permet de communiquer avec lui **à distance et sans restriction**.
+
+Le résultat : tout outil capable de parler à l’API REST peut envoyer des commandes Docker.
+
+### **2. Manipulation de conteneurs via l’API**
+
+Une fois connecté à l’API exposée, un utilisateur non autorisé peut :
+
+- démarrer un nouveau conteneur,
+- lui faire monter des fichiers ou dossiers du système hôte,
+- lui faire exécuter des actions qui affectent la machine réelle,
+- lire ou modifier des données critiques du serveur.
+
+Cette étape prouve que l’attaquant contourne complètement les mécanismes d’isolation normalement prévus.
+
+### **3. Preuve d’exploitation**
+
+La preuve consiste à :
+
+- déclencher des actions via l’API Docker vulnérable,
+- observer la réaction sur le système hôte,
+- vérifier que ces actions auraient normalement été impossibles sans accès root.
+
+La démonstration valide donc que : **l’API Docker exposée donne un contrôle total de la machine hôte.**
+
+### **4. Validation**
+
+La validation se fait en deux points :
+
+1. **Le démon Docker accepte et exécute des commandes depuis le réseau**, alors qu’il ne devrait jamais le faire sans authentification.
+2. **Les actions déclenchées à distance ont un impact direct sur le système hôte**, prouvant la compromission.
+
+L’ensemble constitue une exploitation réussie de la vulnérabilité.
 
 
 # **Mesures de mitigation**
