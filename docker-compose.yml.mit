@@ -1,0 +1,13 @@
+services:
+  docker:
+    build: .
+
+    privileged: true        # Obligatoire pour DIND
+    security_opt:
+      - apparmor=unconfined # Obligatoire pour DIND
+
+    ports:
+      - "127.0.0.1:2375:2375"   # Restreint au localhost → l’exploit ne marche plus
+
+    # No userns, no cap-drop → ton conteneur démarre correctement.
+
