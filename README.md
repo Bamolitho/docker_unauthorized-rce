@@ -29,6 +29,64 @@ flowchart LR
     DAEMON -->|exécute et gère| HOST
 ```
 
+# DIND : ce que c’est vraiment
+
+**Docker-in-Docker (DIND)** = *Docker qui tourne à l’intérieur d’un conteneur Docker.*
+
+C’est un **conteneur qui exécute lui-même un démon Docker**, capable de lancer d’autres conteneurs.
+
+Ça donne une architecture comme ceci :
+
+```less
+Machine hôte
+ └── Conteneur DIND (dockerd)
+       └── Conteneur(s) lancés par DIND
+```
+
+Mais il faut comprendre un détail crucial :
+
+**DIND fonctionne uniquement si le conteneur parent possède des privilèges élevés**
+
+Pour faire tourner un daemon Docker dans un conteneur, il faut :
+
+- `privileged: true`
+- `apparmor=unconfined`
+- accès total au kernel du système hôte
+
+Résultat : **un conteneur DIND n’est pas "juste un conteneur" → c’est pratiquement une VM légère avec accès au kernel.**
+
+------
+
+### Pourquoi DIND est dangereux quand il expose son API
+
+Si tu exposes `tcp://0.0.0.0:2375`, alors un attaquant peut :
+
+1. appeler directement le daemon Docker dans ton conteneur DIND
+2. lancer un conteneur *privilégié* à l’intérieur du DIND
+3. ce conteneur voit le kernel hôte
+4. il peut sortir du confinement
+5. et compromettre la machine hôte
+
+Chaîne complète :
+
+```less
+Attaquant externe 
+   ↓
+API Docker DIND (2375)
+   ↓
+Création d’un conteneur privilégié
+   ↓
+Évasion DIND (accès au kernel)
+   ↓
+Prise de contrôle de la machine hôte
+```
+
+# Donc,
+
+**DIND = un conteneur qui contient Docker, capable de lancer d’autres conteneurs.**
+
+Et parce qu’il doit être très privilégié, **compromettre DIND revient à compromettre l’hôte.**
+
 ------
 
 ## Vulnérabilités Identifiées
