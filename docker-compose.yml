@@ -2,6 +2,6 @@ services:
  docker:
    build: .
    ports:
-    - "2375:2375"
+    - "127.0.0.1:2375:2375"
    privileged: true
 

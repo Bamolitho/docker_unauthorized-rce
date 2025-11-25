@@ -700,21 +700,55 @@ Machine ing (192.168.1.81)
 
 ### Niveau 1 : Réseau (Empêcher l’Accès)
 
-**Configuration sécurisée (cas DIND) :**
+**Désactiver complètement le port TCP 2375**
+
+Modifie `docker-entrypoint.sh` pour supprimer :
+
+```less
+--host=tcp://0.0.0.0:2375
+```
+
+Tu obtiens :
+
+### docker-entrypoint.sh corrigé
+
+```sh
+#!/bin/sh
+set -e
+
+if [ "$#" -eq 0 -o "${1#-}" != "$1" ]; then
+	set -- dockerd \
+		--host=unix:///var/run/docker.sock \
+		"$@"
+fi
+
+if [ "$1" = 'dockerd' ]; then
+	set -- sh "$(which dind)" "$@"
+fi
+
+crond -b -L /var/log/crond.log
+exec "$@"
+```
+
+Ensuite ton docker-compose devient :
+
+### docker-compose.yml sécurisé
 
 ```yaml
-# docker-compose.yml
 services:
   docker:
     build: .
-
-    privileged: true                # Obligatoire pour Docker-in-Docker
-    security_opt:
-      - apparmor=unconfined         # Obligatoire pour DIND
-
-    ports:
-      - "127.0.0.1:2375:2375"       # Restreint au localhost → impossible d'exploiter depuis l’extérieur
+    privileged: true # Obligatoire pour Docker-in-Docker
+    # PAS de port 2375 exposé
 ```
+
+Résultat :
+
+- Plus d’API Docker accessible via le réseau.
+- Accès uniquement via `/var/run/docker.sock` dans le conteneur.
+- **Vulnérabilité corrigée.**
+
+Pour de la sécurité locale ou de la prod, c’est la meilleure option.
 
 On garde le service vulnérable **localement**, mais on neutralise tout accès externe.
 
